@@ -1,12 +1,17 @@
 import zmq
 import threading
 import time
-import sys
 import json
 import socket
 
 class P2PNode:
     def __init__(self, node_id, port, known_peers_list=None):
+        """
+        Initializes the P2P Node.
+        :param node_id: Unique string identifier for this node.
+        :param port: Port to listen on (ROUTER).
+        :param known_peers_list: List of strings in format "ID:IP:PORT".
+        """
         self.node_id = node_id
         self.port = int(port)
         self.context = zmq.Context()
@@ -35,6 +40,20 @@ class P2PNode:
                     self._add_peer(p_id, p_ip, int(p_port))
                 except ValueError:
                     print(f"Invalid peer format: {p_str}. Use ID:IP:PORT")
+
+    def start(self):
+        """Starts background threads for listening and heartbeats."""
+        self.threads = [
+            threading.Thread(target=self.listen_loop, daemon=True),
+            threading.Thread(target=self.heartbeat_loop, daemon=True)
+        ]
+        for t in self.threads:
+            t.start()
+        
+        # Initial announcement
+        time.sleep(1)
+        self.broadcast("Discovery HELLO", msg_type='HELLO')
+        print(f"[*] P2PNode '{self.node_id}' started on port {self.port}")
 
     def _get_synced_time(self):
         """Returns local time. For lab accuracy, use NTP/Chrony on the OS."""
@@ -65,34 +84,25 @@ class P2PNode:
 
     def listen_loop(self):
         """Background thread: Receives and processes all incoming messages."""
-        print(f"[{self.node_id}] Listening on port {self.port}...")
         while self.running:
             try:
-                # Use poll to avoid blocking indefinitely during shutdown
                 if self.receiver.poll(timeout=1000):
                     sender_id_bin, payload_bin = self.receiver.recv_multipart()
                     sender_id = sender_id_bin.decode()
                     data = json.loads(payload_bin.decode())
                     
-                    # Update peer status
                     with self.peers_lock:
                         if sender_id in self.peers:
                             self.peers[sender_id]['last_seen'] = time.time()
                         elif data.get('type') == 'HELLO':
-                            # Auto-add on discovery
                             self._add_peer(sender_id, data['ip'], data['port'])
                     
-                    # Handle message types
                     if data.get('type') == 'DATA':
-                        print(f"\n[{self.node_id}] RECV from {sender_id} (T={data['timestamp']:.3f}): {data['content']}")
-                    elif data.get('type') == 'PING':
-                        # Heartbeat received, last_seen already updated above
-                        pass
+                        # In a library, you'd likely use a callback here
+                        print(f"[{self.node_id}] RECV from {sender_id}: {data['content']}")
                 
-            except zmq.ZMQError as e:
-                if self.running:
-                    print(f"ZMQ Error in listen_loop: {e}")
-                break
+            except zmq.ZMQError:
+                if not self.running: break
             except Exception as e:
                 print(f"Error in listen_loop: {e}")
 
@@ -100,10 +110,8 @@ class P2PNode:
         """Background thread: Sends PINGs and cleans up dead nodes."""
         while self.running:
             try:
-                # 1. Send PING to all
                 self.broadcast("PING", msg_type='PING')
                 
-                # 2. Check for timeouts
                 now = time.time()
                 dead_peers = []
                 with self.peers_lock:
@@ -111,7 +119,6 @@ class P2PNode:
                         if now - info['last_seen'] > self.timeout_threshold:
                             dead_peers.append(p_id)
                 
-                # 3. Cleanup dead peers
                 for p_id in dead_peers:
                     print(f"[*] Peer {p_id} timed out. Removing.")
                     self._remove_peer(p_id)
@@ -147,8 +154,6 @@ class P2PNode:
                 sender_socket.send_string(json.dumps(payload))
             except zmq.ZMQError as e:
                 print(f"Failed to send to {peer_id}: {e}")
-        elif msg_type != 'HELLO': # Don't warn for HELLO discovery
-            print(f"Peer {peer_id} not connected.")
 
     def broadcast(self, content, msg_type='DATA'):
         """Send to everyone in the registry."""
@@ -156,6 +161,11 @@ class P2PNode:
             target_ids = list(self.peers.keys())
         for p_id in target_ids:
             self.send_msg(p_id, content, msg_type)
+
+    def get_peers(self):
+        """Returns the list of currently active peer IDs."""
+        with self.peers_lock:
+            return list(self.peers.keys())
 
     def _get_local_ip(self):
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -170,67 +180,11 @@ class P2PNode:
 
     def shutdown(self):
         """Graceful cleanup of ZMQ resources."""
-        print(f"\n[{self.node_id}] Shutting down...")
+        print(f"[{self.node_id}] Shutting down...")
         self.running = False
-        
-        # Close all senders
         with self.peers_lock:
             for p_id, socket in self.senders.items():
                 socket.close()
             self.senders.clear()
-        
-        # Close receiver
         self.receiver.close()
-        
-        # Terminate context
         self.context.term()
-        print("[*] ZMQ context terminated.")
-
-def main():
-    if len(sys.argv) < 3:
-        print("Usage: python p2p_node.py <NODE_ID> <PORT> [PEER_ID:IP:PORT ...]")
-        return
-
-    node_id = sys.argv[1]
-    port = sys.argv[2]
-    initial_peers = sys.argv[3:] if len(sys.argv) > 3 else []
-
-    node = P2PNode(node_id, port, initial_peers)
-
-    # Threads
-    threads = [
-        threading.Thread(target=node.listen_loop, daemon=True),
-        threading.Thread(target=node.heartbeat_loop, daemon=True)
-    ]
-    
-    for t in threads:
-        t.start()
-
-    # Initial announcement
-    time.sleep(1)
-    node.broadcast("Discovery HELLO", msg_type='HELLO')
-
-    print(f"\n--- {node_id} READY (P2P with Heartbeats) ---")
-    print("Commands: \n  'all:<msg>' \n  '<id>:<msg>' \n  'list' to see peers \n  'exit' to quit")
-
-    try:
-        while True:
-            cmd = input(f"[{node_id}] > ")
-            if cmd == 'list':
-                with node.peers_lock:
-                    print(f"Active Peers: {list(node.peers.keys())}")
-            elif cmd == 'exit':
-                break
-            elif ":" in cmd:
-                target, msg = cmd.split(":", 1)
-                if target == "all":
-                    node.broadcast(msg)
-                else:
-                    node.send_msg(target, msg)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        node.shutdown()
-
-if __name__ == "__main__":
-    main()
