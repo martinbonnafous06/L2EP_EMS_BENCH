@@ -1,0 +1,13 @@
+services:
+  node:
+    build: .
+    container_name: p2p_node
+    # network_mode host est crucial pour que Nmap scanne le réseau physique 
+    # et que ZMQ lie les ports sur l'IP réelle du Raspberry Pi.
+    network_mode: host
+    environment:
+      - NODE_ID=${NODE_ID:-pi_node}
+      - P2P_PORT=5555
+    volumes:
+      - ./peers.json:/app/peers.json
+    restart: unless-stopped
