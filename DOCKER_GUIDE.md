@@ -1,6 +1,6 @@
-# Guide de Déploiement Docker pour Raspberry Pi 5
+# Guide de Déploiement Docker pour Raspberry Pi
 
-Ce guide explique comment installer Docker sur Lubuntu/Ubuntu et déployer le nœud P2P.
+Ce guide explique comment installer Docker sur Raspberry Pi OS et déployer le nœud P2P.
 
 ## 1. Installation de Docker sur le Raspberry Pi
 
