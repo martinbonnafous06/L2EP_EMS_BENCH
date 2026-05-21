@@ -21,7 +21,7 @@ def main():
             print(f"[!] Error loading peers.json: {e}")
 
     # 3. Initialize and Start Node
-    node = P2PNode(node_id, port, known_peers)
+    node = P2PNode(node_id, port, known_peers, peers_file=peers_file)
     node.start()
 
     print(f"\n--- {node_id} RUNNING ---")

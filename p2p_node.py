@@ -5,15 +5,17 @@ import json
 import socket
 
 class P2PNode:
-    def __init__(self, node_id, port, known_peers_list=None):
+    def __init__(self, node_id, port, known_peers_list=None, peers_file=None):
         """
         Initializes the P2P Node.
         :param node_id: Unique string identifier for this node.
         :param port: Port to listen on (ROUTER).
         :param known_peers_list: List of strings in format "ID:IP:PORT".
+        :param peers_file: Optional path to save discovered peers to.
         """
         self.node_id = node_id
         self.port = int(port)
+        self.peers_file = peers_file
         self.context = zmq.Context()
         self.running = True
         self.heartbeat_interval = 2 # seconds
@@ -37,7 +39,7 @@ class P2PNode:
             for p_str in known_peers_list:
                 try:
                     p_id, p_ip, p_port = p_str.split(':')
-                    self._add_peer(p_id, p_ip, int(p_port))
+                    self._add_peer(p_id, p_ip, int(p_port), save=False)
                 except ValueError:
                     print(f"Invalid peer format: {p_str}. Use ID:IP:PORT")
 
@@ -59,7 +61,21 @@ class P2PNode:
         """Returns local time. For lab accuracy, use NTP/Chrony on the OS."""
         return time.time()
 
-    def _add_peer(self, peer_id, ip, port):
+    def _save_peers(self):
+        """Persists the current list of known peers to disk."""
+        if not self.peers_file:
+            return
+            
+        try:
+            with self.peers_lock:
+                peer_list = [f"{pid}:{info['ip']}:{info['port']}" for pid, info in self.peers.items()]
+            
+            with open(self.peers_file, "w") as f:
+                json.dump(peer_list, f, indent=4)
+        except Exception as e:
+            print(f"[!] Error saving to {self.peers_file}: {e}")
+
+    def _add_peer(self, peer_id, ip, port, save=True):
         with self.peers_lock:
             if peer_id not in self.peers:
                 print(f"[*] New peer detected: {peer_id} @ {ip}:{port}")
@@ -76,11 +92,16 @@ class P2PNode:
                     'port': port, 
                     'last_seen': time.time()
                 }
-                return True
+                new_peer_added = True
             else:
                 # Just update the last_seen if already exists
                 self.peers[peer_id]['last_seen'] = time.time()
-        return False
+                new_peer_added = False
+        
+        if new_peer_added and save:
+            self._save_peers()
+            
+        return new_peer_added
 
     def listen_loop(self):
         """Background thread: Receives and processes all incoming messages."""
