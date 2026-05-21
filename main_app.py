@@ -6,7 +6,9 @@ from p2p_node import P2PNode
 
 def main():
     # 1. Configuration
-    node_id = os.environ.get("NODE_ID", f"node_{os.getpid()}")
+    import socket
+    hostname = socket.gethostname()
+    node_id = os.environ.get("NODE_ID", f"{hostname}_{os.getpid()}")
     port = int(os.environ.get("P2P_PORT", 5555))
     
     # 2. Load discovered peers

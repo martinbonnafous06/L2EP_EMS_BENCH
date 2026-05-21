@@ -13,13 +13,15 @@ class P2PNode:
         :param known_peers_list: List of strings in format "ID:IP:PORT".
         :param peers_file: Optional path to save discovered peers to.
         """
+        # Ensure node_id is truly unique by adding hostname/randomness if needed
+        # but for now we trust the user or the pid-based default.
         self.node_id = node_id
         self.port = int(port)
         self.peers_file = peers_file
         self.context = zmq.Context()
         self.running = True
         self.heartbeat_interval = 2 # seconds
-        self.timeout_threshold = 10 # increased from 6 to 10 for Pi stability
+        self.timeout_threshold = 10 
         
         # Registry of active peers: { 'ID': {'ip': '...', 'port': ..., 'last_seen': float} }
         self.peers = {}
@@ -33,6 +35,8 @@ class P2PNode:
         
         # 2. Senders (DEALERs) - One per peer
         self.senders = {}
+        # ZMQ sockets are not thread-safe, so we need a lock for sending
+        self.send_lock = threading.Lock()
         
         # Pre-populate if known
         if known_peers_list:
@@ -54,16 +58,13 @@ class P2PNode:
         
         # Initial announcement
         time.sleep(1)
-        # Broadcast a HELLO to everyone we already know
         self.broadcast("Discovery HELLO", msg_type='HELLO')
         print(f"[*] P2PNode '{self.node_id}' started on port {self.port}")
 
     def _get_synced_time(self):
-        """Returns local time. For lab accuracy, use NTP/Chrony on the OS."""
         return time.time()
 
     def _save_peers(self):
-        """Persists the current list of known peers to disk."""
         if not self.peers_file:
             return
             
@@ -81,23 +82,22 @@ class P2PNode:
             return False
 
         with self.peers_lock:
-            # 1. Check if we already have this IP/Port under a different ID (placeholder reconciliation)
+            # 1. Check if we already have this IP/Port under a different ID
             existing_id = None
             for p_id, info in self.peers.items():
                 if info['ip'] == ip and info['port'] == port:
                     existing_id = p_id
                     break
             
-            # 2. If it exists but with a different ID, remove the old one first
             if existing_id and existing_id != peer_id:
                 print(f"[*] Reconciling identity: {existing_id} -> {peer_id}")
-                # We don't call _remove_peer here because we are already holding the lock
-                if existing_id in self.senders:
-                    self.senders[existing_id].close()
-                    del self.senders[existing_id]
+                with self.send_lock: # Ensure we don't close while sending
+                    if existing_id in self.senders:
+                        self.senders[existing_id].close()
+                        del self.senders[existing_id]
                 del self.peers[existing_id]
 
-            # 3. Add or Update the peer
+            # 2. Add or Update the peer
             if peer_id not in self.peers:
                 print(f"[*] New peer detected: {peer_id} @ {ip}:{port}")
                 
@@ -115,7 +115,6 @@ class P2PNode:
                 }
                 new_peer_added = True
             else:
-                # Just update the last_seen if already exists
                 self.peers[peer_id]['last_seen'] = time.time()
                 new_peer_added = False
         
@@ -133,12 +132,9 @@ class P2PNode:
                     sender_id = sender_id_bin.decode()
                     data = json.loads(payload_bin.decode())
                     
-                    # Update or Add peer from ANY incoming message
-                    # This ensures bidirectional discovery
                     self._add_peer(sender_id, data.get('ip'), data.get('port'))
                     
                     if data.get('type') == 'DATA':
-                        # In a library, you'd likely use a callback here
                         print(f"[{self.node_id}] RECV from {sender_id}: {data['content']}")
                 
             except zmq.ZMQError:
@@ -172,9 +168,10 @@ class P2PNode:
         with self.peers_lock:
             if peer_id in self.peers:
                 del self.peers[peer_id]
-            if peer_id in self.senders:
-                self.senders[peer_id].close()
-                del self.senders[peer_id]
+            with self.send_lock:
+                if peer_id in self.senders:
+                    self.senders[peer_id].close()
+                    del self.senders[peer_id]
 
     def send_msg(self, peer_id, content, msg_type='DATA'):
         """Asynchronous send to a specific peer."""
@@ -191,7 +188,9 @@ class P2PNode:
                     'ip': self._get_local_ip(),
                     'port': self.port
                 }
-                sender_socket.send_string(json.dumps(payload))
+                # ZMQ sockets are not thread-safe, use global send lock
+                with self.send_lock:
+                    sender_socket.send_string(json.dumps(payload))
             except zmq.ZMQError as e:
                 print(f"Failed to send to {peer_id}: {e}")
 
@@ -208,12 +207,19 @@ class P2PNode:
             return list(self.peers.keys())
 
     def _get_local_ip(self):
+        # Prefer the IP that can reach a common target
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
-            s.connect(('10.255.255.255', 1))
+            # This doesn't need to be reachable, it just triggers routing
+            s.connect(('8.8.8.8', 80))
             IP = s.getsockname()[0]
         except Exception:
-            IP = '127.0.0.1'
+            try:
+                # Fallback to local subnet check
+                s.connect(('10.255.255.255', 1))
+                IP = s.getsockname()[0]
+            except Exception:
+                IP = '127.0.0.1'
         finally:
             s.close()
         return IP
@@ -223,8 +229,9 @@ class P2PNode:
         print(f"[{self.node_id}] Shutting down...")
         self.running = False
         with self.peers_lock:
-            for p_id, socket in self.senders.items():
-                socket.close()
-            self.senders.clear()
+            with self.send_lock:
+                for p_id, socket in self.senders.items():
+                    socket.close()
+                self.senders.clear()
         self.receiver.close()
         self.context.term()
