@@ -19,7 +19,7 @@ class P2PNode:
         self.context = zmq.Context()
         self.running = True
         self.heartbeat_interval = 2 # seconds
-        self.timeout_threshold = self.heartbeat_interval * 3
+        self.timeout_threshold = 10 # increased from 6 to 10 for Pi stability
         
         # Registry of active peers: { 'ID': {'ip': '...', 'port': ..., 'last_seen': float} }
         self.peers = {}
@@ -54,6 +54,7 @@ class P2PNode:
         
         # Initial announcement
         time.sleep(1)
+        # Broadcast a HELLO to everyone we already know
         self.broadcast("Discovery HELLO", msg_type='HELLO')
         print(f"[*] P2PNode '{self.node_id}' started on port {self.port}")
 
@@ -76,6 +77,9 @@ class P2PNode:
             print(f"[!] Error saving to {self.peers_file}: {e}")
 
     def _add_peer(self, peer_id, ip, port, save=True):
+        if not ip or not port or peer_id == self.node_id:
+            return False
+
         with self.peers_lock:
             if peer_id not in self.peers:
                 print(f"[*] New peer detected: {peer_id} @ {ip}:{port}")
@@ -112,11 +116,9 @@ class P2PNode:
                     sender_id = sender_id_bin.decode()
                     data = json.loads(payload_bin.decode())
                     
-                    with self.peers_lock:
-                        if sender_id in self.peers:
-                            self.peers[sender_id]['last_seen'] = time.time()
-                        elif data.get('type') == 'HELLO':
-                            self._add_peer(sender_id, data['ip'], data['port'])
+                    # Update or Add peer from ANY incoming message
+                    # This ensures bidirectional discovery
+                    self._add_peer(sender_id, data.get('ip'), data.get('port'))
                     
                     if data.get('type') == 'DATA':
                         # In a library, you'd likely use a callback here
