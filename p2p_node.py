@@ -81,6 +81,23 @@ class P2PNode:
             return False
 
         with self.peers_lock:
+            # 1. Check if we already have this IP/Port under a different ID (placeholder reconciliation)
+            existing_id = None
+            for p_id, info in self.peers.items():
+                if info['ip'] == ip and info['port'] == port:
+                    existing_id = p_id
+                    break
+            
+            # 2. If it exists but with a different ID, remove the old one first
+            if existing_id and existing_id != peer_id:
+                print(f"[*] Reconciling identity: {existing_id} -> {peer_id}")
+                # We don't call _remove_peer here because we are already holding the lock
+                if existing_id in self.senders:
+                    self.senders[existing_id].close()
+                    del self.senders[existing_id]
+                del self.peers[existing_id]
+
+            # 3. Add or Update the peer
             if peer_id not in self.peers:
                 print(f"[*] New peer detected: {peer_id} @ {ip}:{port}")
                 
@@ -102,7 +119,7 @@ class P2PNode:
                 self.peers[peer_id]['last_seen'] = time.time()
                 new_peer_added = False
         
-        if new_peer_added and save:
+        if (new_peer_added or existing_id) and save:
             self._save_peers()
             
         return new_peer_added
