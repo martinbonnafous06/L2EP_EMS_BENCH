@@ -1,10 +1,11 @@
 # Utiliser une image Python légère
 FROM python:3.11-slim
 
-# Installer les dépendances système (Nmap pour la découverte, iproute2 pour le réseau)
-RUN apt-get update && apt-get install -y \
+# Installer les dépendances système (Nmap pour la découverte, iproute2 pour le réseau, libzmq5 pour ZeroMQ)
+RUN sudo apt-get update && apt-get install -y \
     nmap \
     iproute2 \
+    libzmq5 \
     && rm -rf /var/lib/apt/lists/*
 
 # Définir le répertoire de travail
