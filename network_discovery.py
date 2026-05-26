@@ -8,7 +8,7 @@ def get_local_subnet():
     # Simple heuristic for Linux
     try:
         # Get IP and mask from 'ip' command
-        cmd = "ip -o -f inet addr show $(ip route get 8.8.8.8 | awk '{print $5}') | awk '{print $4}'"
+        cmd = "ip -o -f inet addr show |grep -iE 'eth0|end0'| awk '{print $4}'"
         output = subprocess.check_output(cmd, shell=True).decode().strip()
         # Output is like 192.168.1.15/24, we want the network part
         ip_parts = output.split('/')
