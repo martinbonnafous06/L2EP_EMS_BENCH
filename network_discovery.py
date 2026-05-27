@@ -4,22 +4,33 @@ import socket
 import os
 
 def get_local_subnet():
-    """Detects the local subnet (e.g., 192.168.1.0/24)."""
-    # Simple heuristic for Linux
-    try:
-        # Get IP and mask from 'ip' command
-        cmd = "ip -o -f inet addr show |grep -iE 'eth0|end0'| awk '{print $4}'"
-        output = subprocess.check_output(cmd, shell=True).decode().strip()
-        # Output is like 192.168.1.15/24, we want the network part
-        ip_parts = output.split('/')
-        base_ip = '.'.join(ip_parts[0].split('.')[:-1]) + '.0'
-        return f"{base_ip}/{ip_parts[1]}"
-    except Exception:
-        return "192.168.1.0/24" # Fallback
+    """Detects the local subnet for eth0 or end0 (Raspberry Pi defaults)."""
+    import ipaddress
+    
+    for interface in ['eth0', 'end0']:
+        try:
+            # Get IP and mask from 'ip' command for specific interface
+            cmd = f"ip -o -f inet addr show {interface} | awk '{{print $4}}'"
+            output = subprocess.check_output(cmd, shell=True, stderr=subprocess.DEVNULL).decode().strip()
+            
+            if output:
+                # Take the first IP if multiple are assigned
+                addr_with_mask = output.split('\n')[0]
+                # Use ipaddress to get the network address properly
+                network = ipaddress.ip_network(addr_with_mask, strict=False)
+                return str(network)
+        except Exception:
+            continue
+    
+    return None
 
 def scan_for_peers(port=5555):
     """Uses nmap to find hosts with the specified port open."""
     subnet = get_local_subnet()
+    if not subnet:
+        print("[!] Error: No eth0 or end0 interface found. Skipping scan.")
+        return []
+        
     print(f"[*] Scanning subnet {subnet} for port {port}...")
     
     try:

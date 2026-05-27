@@ -207,22 +207,46 @@ class P2PNode:
             return list(self.peers.keys())
 
     def _get_local_ip(self):
-        # Prefer the IP that can reach a common target
+        """Specifically look for eth0 or end0 interfaces, avoiding Docker IPs."""
+        # 1. Try eth0/end0 first
+        import subprocess
+        for interface in ['eth0', 'end0']:
+            try:
+                cmd = f"ip -o -f inet addr show {interface} | awk '{{print $4}}' | cut -d/ -f1"
+                output = subprocess.check_output(cmd, shell=True, stderr=subprocess.DEVNULL).decode().strip()
+                if output:
+                    return output.split('\n')[0]
+            except Exception:
+                continue
+
+        # 2. Fallback: Search all interfaces but ignore Docker-like subnets
+        try:
+            # Get all IP addresses except loopback
+            cmd = "ip -o -f inet addr show | grep -v 'lo' | awk '{print $4}' | cut -d/ -f1"
+            all_ips = subprocess.check_output(cmd, shell=True, stderr=subprocess.DEVNULL).decode().strip().split('\n')
+            for ip in all_ips:
+                if not ip: continue
+                # Skip Docker defaults: 172.17.x.x, 172.18.x.x, etc.
+                if ip.startswith('172.'):
+                    # Check if it's in the common Docker range 172.16.0.0/12
+                    parts = ip.split('.')
+                    if 16 <= int(parts[1]) <= 31:
+                        continue
+                if ip.startswith('192.168.48.') or ip.startswith('192.168.49.'): # Common minikube/kind
+                    continue
+                return ip
+        except Exception:
+            pass
+
+        # 3. Final fallback: standard socket method
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
-            # This doesn't need to be reachable, it just triggers routing
             s.connect(('8.8.8.8', 80))
-            IP = s.getsockname()[0]
+            return s.getsockname()[0]
         except Exception:
-            try:
-                # Fallback to local subnet check
-                s.connect(('10.255.255.255', 1))
-                IP = s.getsockname()[0]
-            except Exception:
-                IP = '127.0.0.1'
+            return '127.0.0.1'
         finally:
             s.close()
-        return IP
 
     def shutdown(self):
         """Graceful cleanup of ZMQ resources."""
