@@ -34,7 +34,19 @@ class P2PNode:
         self.receiver = self.context.socket(zmq.ROUTER)
         self.receiver.setsockopt_string(zmq.IDENTITY, self.node_id)
         self.receiver.setsockopt(zmq.LINGER, 0)
-        self.receiver.bind(f"tcp://*:{self.port}")
+        
+        # Try to bind to the requested port, or find the next available one
+        max_tries = 100
+        for i in range(max_tries):
+            try:
+                current_port = self.port + i
+                self.receiver.bind(f"tcp://*:{current_port}")
+                self.port = current_port
+                break
+            except zmq.ZMQError as e:
+                if i == max_tries - 1:
+                    raise e
+                continue
         
         # 2. Senders (DEALERs) - One per peer
         self.senders = {}
