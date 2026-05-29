@@ -38,9 +38,11 @@ def main():
             status_msg = f"Heartbeat check #{counter} - Load: {os.getloadavg() if hasattr(os, 'getloadavg') else 'N/A'}"
             node.broadcast(status_msg)
             
-            # Show current peer count
+            # Show current peer count and synced time
             active_peers = node.get_peers()
-            print(f"[*] Periodic broadcast sent. Active peers: {len(active_peers)} {active_peers}")
+            synced_time = node._get_synced_time()
+            time_str = time.strftime('%H:%M:%S', time.localtime(synced_time))
+            print(f"[*] Time: {time_str} (Offset: {node.time_offset:+.6f}s) | Active peers: {len(active_peers)}")
             
     except KeyboardInterrupt:
         pass

@@ -13,8 +13,6 @@ class P2PNode:
         :param known_peers_list: List of strings in format "ID:IP:PORT".
         :param peers_file: Optional path to save discovered peers to.
         """
-        # Ensure node_id is truly unique by adding hostname/randomness if needed
-        # but for now we trust the user or the pid-based default.
         self.node_id = node_id
         self.port = int(port)
         self.peers_file = peers_file
@@ -26,6 +24,11 @@ class P2PNode:
         # Registry of active peers: { 'ID': {'ip': '...', 'port': ..., 'last_seen': float} }
         self.peers = {}
         self.peers_lock = threading.Lock()
+        
+        # Time Synchronization
+        self.time_offset = 0.0
+        self.sync_interval = 10.0 # seconds
+        self.offsets = {} # {peer_id: last_offset}
         
         # 1. Receiver (ROUTER) - Listen for everything
         self.receiver = self.context.socket(zmq.ROUTER)
@@ -51,7 +54,8 @@ class P2PNode:
         """Starts background threads for listening and heartbeats."""
         self.threads = [
             threading.Thread(target=self.listen_loop, daemon=True),
-            threading.Thread(target=self.heartbeat_loop, daemon=True)
+            threading.Thread(target=self.heartbeat_loop, daemon=True),
+            threading.Thread(target=self.time_sync_loop, daemon=True)
         ]
         for t in self.threads:
             t.start()
@@ -62,7 +66,8 @@ class P2PNode:
         print(f"[*] P2PNode '{self.node_id}' started on port {self.port}")
 
     def _get_synced_time(self):
-        return time.time()
+        """Returns the current system time plus the calculated synchronization offset."""
+        return time.time() + self.time_offset
 
     def _save_peers(self):
         if not self.peers_file:
@@ -134,8 +139,32 @@ class P2PNode:
                     
                     self._add_peer(sender_id, data.get('ip'), data.get('port'))
                     
-                    if data.get('type') == 'DATA':
+                    msg_type = data.get('type')
+                    if msg_type == 'DATA':
                         print(f"[{self.node_id}] RECV from {sender_id}: {data['content']}")
+                    
+                    elif msg_type == 'TIME_REQ':
+                        # Respond with our current synced time
+                        self.send_msg(sender_id, {"t_orig": data['content']['t_orig']}, msg_type='TIME_RES')
+                    
+                    elif msg_type == 'TIME_RES':
+                        # Only sync to the "Time Master" (lowest node_id among active peers + self)
+                        active_peers = self.get_peers()
+                        all_nodes = sorted(active_peers + [self.node_id])
+                        master_id = all_nodes[0]
+                        
+                        if sender_id == master_id:
+                            t_4 = time.time()
+                            t_orig = data['content']['t_orig']
+                            t_server = data['timestamp'] # Peer's synced time
+                            rtt = t_4 - t_orig
+                            
+                            # Christian's algorithm: T_new = T_server + RTT/2
+                            offset_sample = (t_server + rtt/2) - t_4
+                            
+                            # Use a moving average for smoothness
+                            self.time_offset = 0.8 * self.time_offset + 0.2 * offset_sample
+                            # print(f"[*] Synced with Master {master_id}: Offset {self.time_offset:+.6f}s")
                 
             except zmq.ZMQError:
                 if not self.running: break
@@ -164,10 +193,23 @@ class P2PNode:
             
             time.sleep(self.heartbeat_interval)
 
+    def time_sync_loop(self):
+        """Background thread: Periodically requests time from all peers."""
+        while self.running:
+            try:
+                # Send TIME_REQ with local (unsynced) timestamp
+                self.broadcast({"t_orig": time.time()}, msg_type='TIME_REQ')
+            except Exception as e:
+                print(f"Error in time_sync_loop: {e}")
+            
+            time.sleep(self.sync_interval)
+
     def _remove_peer(self, peer_id):
         with self.peers_lock:
             if peer_id in self.peers:
                 del self.peers[peer_id]
+            if peer_id in self.offsets:
+                del self.offsets[peer_id]
             with self.send_lock:
                 if peer_id in self.senders:
                     self.senders[peer_id].close()
@@ -208,7 +250,6 @@ class P2PNode:
 
     def _get_local_ip(self):
         """Specifically look for eth0 or end0 interfaces, avoiding Docker IPs."""
-        # 1. Try eth0/end0 first
         import subprocess
         for interface in ['eth0', 'end0']:
             try:
@@ -219,26 +260,21 @@ class P2PNode:
             except Exception:
                 continue
 
-        # 2. Fallback: Search all interfaces but ignore Docker-like subnets
         try:
-            # Get all IP addresses except loopback
             cmd = "ip -o -f inet addr show | grep -v 'lo' | awk '{print $4}' | cut -d/ -f1"
             all_ips = subprocess.check_output(cmd, shell=True, stderr=subprocess.DEVNULL).decode().strip().split('\n')
             for ip in all_ips:
                 if not ip: continue
-                # Skip Docker defaults: 172.17.x.x, 172.18.x.x, etc.
                 if ip.startswith('172.'):
-                    # Check if it's in the common Docker range 172.16.0.0/12
                     parts = ip.split('.')
                     if 16 <= int(parts[1]) <= 31:
                         continue
-                if ip.startswith('192.168.48.') or ip.startswith('192.168.49.'): # Common minikube/kind
+                if ip.startswith('192.168.48.') or ip.startswith('192.168.49.'):
                     continue
                 return ip
         except Exception:
             pass
 
-        # 3. Final fallback: standard socket method
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
             s.connect(('8.8.8.8', 80))
