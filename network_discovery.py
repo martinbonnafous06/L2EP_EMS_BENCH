@@ -24,27 +24,31 @@ def get_local_subnet():
     
     return None
 
-def scan_for_peers(port=5555):
-    """Uses nmap to find hosts with the specified port open."""
+def scan_for_peers(port_range="5555-5565"):
+    """Uses nmap to find hosts with any port in the specified range open."""
     subnet = get_local_subnet()
     if not subnet:
         print("[!] Error: No eth0 or end0 interface found. Skipping scan.")
         return []
         
-    print(f"[*] Scanning subnet {subnet} for port {port}...")
+    print(f"[*] Scanning subnet {subnet} for ports {port_range}...")
     
     try:
-        # -p: port, --open: only show open ports, -n: no DNS resolution, -oG: grepable output
-        cmd = ["nmap", "-p", str(port), "--open", "-n", "-oG", "-", subnet]
+        # -p: port range, --open: only show open ports, -n: no DNS resolution, -oG: grepable output
+        cmd = ["nmap", "-p", port_range, "--open", "-n", "-oG", "-", subnet]
         output = subprocess.check_output(cmd).decode()
         
         peers = []
         for line in output.splitlines():
             if "Host:" in line and "Ports:" in line:
                 ip = line.split()[1]
-                # In this system, we don't know the node_id yet, so we use a placeholder or the IP
-                # The node will identify itself via HELLO later anyway.
-                peers.append(f"node_{ip.replace('.', '_')}:{ip}:{port}")
+                # Extract the port(s) found open
+                # Line format: Host: 192.168.1.10 () Ports: 5555/open/tcp//...
+                ports_part = line.split("Ports: ")[1]
+                for p_info in ports_part.split(", "):
+                    if "/open/" in p_info:
+                        found_port = p_info.split("/")[0]
+                        peers.append(f"node_{ip.replace('.', '_')}_{found_port}:{ip}:{found_port}")
         
         return peers
     except FileNotFoundError:
