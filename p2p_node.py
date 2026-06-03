@@ -5,17 +5,19 @@ import json
 import socket
 
 class P2PNode:
-    def __init__(self, node_id, port, known_peers_list=None, peers_file=None):
+    def __init__(self, node_id, port, known_peers_list=None, peers_file=None, uds_path="/tmp/p2p_node.sock"):
         """
         Initializes the P2P Node.
         :param node_id: Unique string identifier for this node.
         :param port: Port to listen on (ROUTER).
         :param known_peers_list: List of strings in format "ID:IP:PORT".
         :param peers_file: Optional path to save discovered peers to.
+        :param uds_path: Path for the Unix Domain Socket listener.
         """
         self.node_id = node_id
         self.port = int(port)
         self.peers_file = peers_file
+        self.uds_path = uds_path
         self.context = zmq.Context()
         self.running = True
         self.heartbeat_interval = 2 # seconds
@@ -67,7 +69,8 @@ class P2PNode:
         self.threads = [
             threading.Thread(target=self.listen_loop, daemon=True),
             threading.Thread(target=self.heartbeat_loop, daemon=True),
-            threading.Thread(target=self.time_sync_loop, daemon=True)
+            threading.Thread(target=self.time_sync_loop, daemon=True),
+            threading.Thread(target=self.uds_listen_loop, daemon=True)
         ]
         for t in self.threads:
             t.start()
@@ -76,6 +79,64 @@ class P2PNode:
         time.sleep(1)
         self.broadcast("Discovery HELLO", msg_type='HELLO')
         print(f"[*] P2PNode '{self.node_id}' started on port {self.port}")
+        if self.uds_path:
+            print(f"[*] UDS Listener active at {self.uds_path}")
+
+    def uds_listen_loop(self):
+        """Listens for local data on a Unix Domain Socket to broadcast to peers."""
+        if not self.uds_path:
+            return
+
+        import os
+        if os.path.exists(self.uds_path):
+            os.remove(self.uds_path)
+
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            server.bind(self.uds_path)
+            server.listen(5)
+            server.settimeout(1.0)
+            
+            while self.running:
+                try:
+                    conn, _ = server.accept()
+                    with conn:
+                        data = conn.recv(4096)
+                        if data:
+                            try:
+                                # Try to parse as JSON
+                                msg_data = json.loads(data.decode())
+                                
+                                # Check if it's a targeting command: {"target": "ID", "content": "..."}
+                                if isinstance(msg_data, dict) and "target" in msg_data:
+                                    target = msg_data["target"]
+                                    content = msg_data.get("content", "")
+                                    
+                                    if target == "all" or not target:
+                                        print(f"[*] UDS RECV: Broadcasting message")
+                                        self.broadcast(content)
+                                    else:
+                                        print(f"[*] UDS RECV: Targeting peer {target}")
+                                        self.send_msg(target, content)
+                                else:
+                                    # Just standard JSON data, broadcast it
+                                    print(f"[*] UDS RECV: Broadcasting JSON data")
+                                    self.broadcast(msg_data)
+                                    
+                            except ValueError:
+                                # Not JSON, broadcast as raw string
+                                content = data.decode().strip()
+                                print(f"[*] UDS RECV: Broadcasting raw string")
+                                self.broadcast(content)
+                except socket.timeout:
+                    continue
+                except Exception as e:
+                    if self.running:
+                        print(f"Error in UDS loop: {e}")
+        finally:
+            server.close()
+            if os.path.exists(self.uds_path):
+                os.remove(self.uds_path)
 
     def _get_synced_time(self):
         """Returns the current system time plus the calculated synchronization offset."""
@@ -296,10 +357,30 @@ class P2PNode:
         finally:
             s.close()
 
+    def send_message(self, content, peer_id=None):
+        """
+        Public API to send a message.
+        If peer_id is provided, sends to that specific peer.
+        Otherwise, broadcasts to all known peers.
+        """
+        if peer_id:
+            self.send_msg(peer_id, content)
+        else:
+            self.broadcast(content)
+
     def shutdown(self):
-        """Graceful cleanup of ZMQ resources."""
+        """Graceful cleanup of ZMQ and UDS resources."""
         print(f"[{self.node_id}] Shutting down...")
         self.running = False
+        
+        # Cleanup UDS socket file
+        import os
+        if self.uds_path and os.path.exists(self.uds_path):
+            try:
+                os.remove(self.uds_path)
+            except:
+                pass
+
         with self.peers_lock:
             with self.send_lock:
                 for p_id, socket in self.senders.items():
@@ -307,3 +388,34 @@ class P2PNode:
                 self.senders.clear()
         self.receiver.close()
         self.context.term()
+
+def start_p2p_node(node_id=None, port=5555, peers_file="peers.json", uds_path="/tmp/p2p_node.sock"):
+    """
+    Helper function to quickly initialize and start a P2PNode.
+    Handles environment variables and peer loading.
+    """
+    import os
+    import socket
+    
+    # 1. Configuration
+    if not node_id:
+        hostname = socket.gethostname()
+        node_id = os.environ.get("NODE_ID", hostname)
+    
+    port = int(os.environ.get("P2P_PORT", port))
+    uds_path = os.environ.get("UDS_PATH", uds_path)
+    
+    # 2. Load discovered peers
+    known_peers = []
+    if peers_file and os.path.exists(peers_file):
+        try:
+            with open(peers_file, "r") as f:
+                known_peers = json.load(f)
+            print(f"[*] Loaded {len(known_peers)} peers from {peers_file}")
+        except Exception as e:
+            print(f"[!] Error loading {peers_file}: {e}")
+
+    # 3. Initialize and Start Node
+    node = P2PNode(node_id, port, known_peers, peers_file=peers_file, uds_path=uds_path)
+    node.start()
+    return node

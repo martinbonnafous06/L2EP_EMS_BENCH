@@ -8,7 +8,7 @@ def main():
     # 1. Configuration
     import socket
     hostname = socket.gethostname()
-    node_id = os.environ.get("NODE_ID", f"{hostname}_{os.getpid()}")
+    node_id = os.environ.get("NODE_ID", hostname)
     port = int(os.environ.get("P2P_PORT", 5555))
     
     # 2. Load discovered peers
