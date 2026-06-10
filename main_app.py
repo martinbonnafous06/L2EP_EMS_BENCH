@@ -23,7 +23,7 @@ def main():
             print(f"[!] Error loading peers.json: {e}")
 
     # 3. Initialize and Start Node
-    node = P2PNode(node_id, port, known_peers, peers_file=peers_file)
+    node = P2PNode(node_id, port, known_peers, peers_file=peers_file, state_file="data-recieved.json")
     node.start()
 
     print(f"\n--- {node_id} RUNNING ---")
@@ -31,12 +31,22 @@ def main():
 
     try:
         # 4. Automated Task Loop (Simulated Experiment)
-        counter = 0
         while True:
             time.sleep(10)
-            counter += 1
-            status_msg = f"Heartbeat check #{counter} - Load: {os.getloadavg() if hasattr(os, 'getloadavg') else 'N/A'}"
-            node.broadcast(status_msg)
+            
+            # Read data from data-sent.json
+            data_to_send = {}
+            if os.path.exists("data-sent.json"):
+                try:
+                    with open("data-sent.json", "r") as f:
+                        data_to_send = json.load(f)
+                except Exception as e:
+                    print(f"[!] Error reading data-sent.json: {e}")
+            else:
+                print(f"[!] data-sent.json not found, sending empty object.")
+            
+            node.broadcast(data_to_send)
+            print(f"[*] Broadcasted data from data-sent.json: {data_to_send}")
             
             # Show current peer count and synced time
             active_peers = node.get_peers()
