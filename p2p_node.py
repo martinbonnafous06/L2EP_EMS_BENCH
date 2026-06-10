@@ -156,8 +156,42 @@ class P2PNode:
             return
             
         try:
+            import os
+            # 1. Load existing peers from file
+            existing_peers = {}
+            if os.path.exists(self.peers_file):
+                try:
+                    with open(self.peers_file, "r") as f:
+                        file_content = json.load(f)
+                        if isinstance(file_content, list):
+                            for p_str in file_content:
+                                try:
+                                    p_id, p_ip, p_port = p_str.split(':')
+                                    existing_peers[p_id] = {'ip': p_ip, 'port': int(p_port)}
+                                except ValueError:
+                                    pass
+                except Exception as e:
+                    print(f"[!] Error reading existing peers from {self.peers_file}: {e}")
+
+            # 2. Merge with current active peers
             with self.peers_lock:
-                peer_list = [f"{pid}:{info['ip']}:{info['port']}" for pid, info in self.peers.items()]
+                active_peers_copy = {pid: {'ip': info['ip'], 'port': info['port']} for pid, info in self.peers.items()}
+
+            # Resolve any conflicts: if an active peer has the same IP & port as an existing peer with a different ID,
+            # we should remove the old ID from existing_peers to avoid duplicate/stale entries.
+            for active_id, active_info in active_peers_copy.items():
+                stale_ids = [
+                    eid for eid, einfo in existing_peers.items()
+                    if einfo['ip'] == active_info['ip'] and einfo['port'] == active_info['port'] and eid != active_id
+                ]
+                for stale_id in stale_ids:
+                    del existing_peers[stale_id]
+                
+                # Update or add the active peer
+                existing_peers[active_id] = active_info
+
+            # 3. Format back to list of strings
+            peer_list = [f"{pid}:{info['ip']}:{info['port']}" for pid, info in existing_peers.items()]
             
             with open(self.peers_file, "w") as f:
                 json.dump(peer_list, f, indent=4)
