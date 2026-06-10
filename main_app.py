@@ -2,7 +2,10 @@ import time
 import json
 import os
 import sys
-from p2p_node import P2PNode
+try:
+    from .p2p_node import P2PNode
+except (ImportError, ValueError):
+    from p2p_node import P2PNode
 
 def main():
     # 1. Configuration

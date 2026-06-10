@@ -3,7 +3,10 @@ import json
 import os
 import argparse
 from datetime import datetime
-from p2p_node import P2PNode
+try:
+    from .p2p_node import P2PNode
+except (ImportError, ValueError):
+    from p2p_node import P2PNode
 
 LOG_FILE = "battery-can.log"
 

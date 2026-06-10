@@ -1,6 +1,9 @@
 import time
 import os
-from p2p_node import start_p2p_node
+try:
+    from .p2p_node import start_p2p_node
+except (ImportError, ValueError):
+    from p2p_node import start_p2p_node
 
 def main():
     # Configuration via environment or defaults
