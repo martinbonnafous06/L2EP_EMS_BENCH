@@ -341,26 +341,48 @@ class P2PNode:
             return
 
         with self.data_lock:
-            # 1. Update latest state file (dictionary)
+            # 1. Update latest state file (flat list of objects with no duplicates)
             if self.state_file:
-                state = {}
+                state_list = []
                 if os.path.exists(self.state_file):
                     try:
                         with open(self.state_file, 'r') as f:
-                            state = json.load(f)
+                            file_content = json.load(f)
+                            if isinstance(file_content, list):
+                                state_list = file_content
                     except Exception:
                         pass
                 
-                state[sender_id] = {
-                    'content': data.get('content'),
+                # Build the flat entry
+                entry = {
+                    'sender': sender_id,
                     'timestamp': data.get('timestamp'),
                     'ip': data.get('ip'),
                     'port': data.get('port')
                 }
                 
+                # Merge content keys directly at root level if content is a dictionary
+                content = data.get('content')
+                if isinstance(content, dict):
+                    entry.update(content)
+                else:
+                    entry['content'] = content
+                
+                # Check for existing entry with the same sender to suppress duplicates
+                found_idx = -1
+                for idx, existing in enumerate(state_list):
+                    if isinstance(existing, dict) and existing.get('sender') == sender_id:
+                        found_idx = idx
+                        break
+                
+                if found_idx != -1:
+                    state_list[found_idx] = entry
+                else:
+                    state_list.append(entry)
+                
                 try:
                     with open(self.state_file, 'w') as f:
-                        json.dump(state, f, indent=4)
+                        json.dump(state_list, f, indent=4)
                 except Exception as e:
                     print(f"[!] Error writing state file {self.state_file}: {e}")
 
