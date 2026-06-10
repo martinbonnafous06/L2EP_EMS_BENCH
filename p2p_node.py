@@ -5,7 +5,7 @@ import json
 import socket
 
 class P2PNode:
-    def __init__(self, node_id, port, known_peers_list=None, peers_file=None, uds_path="/tmp/p2p_node.sock"):
+    def __init__(self, node_id, port, known_peers_list=None, peers_file=None, uds_path="/tmp/p2p_node.sock", on_message=None, state_file=None, data_log_file=None):
         """
         Initializes the P2P Node.
         :param node_id: Unique string identifier for this node.
@@ -13,11 +13,18 @@ class P2PNode:
         :param known_peers_list: List of strings in format "ID:IP:PORT".
         :param peers_file: Optional path to save discovered peers to.
         :param uds_path: Path for the Unix Domain Socket listener.
+        :param on_message: Optional callback function(sender_id, content) for received DATA messages.
+        :param state_file: Optional path to log the latest state of all nodes as a JSON dictionary.
+        :param data_log_file: Optional path to log all received data chronologically as a JSON list.
         """
         self.node_id = node_id
         self.port = int(port)
         self.peers_file = peers_file
         self.uds_path = uds_path
+        self.on_message = on_message
+        self.state_file = state_file
+        self.data_log_file = data_log_file
+        self.data_lock = threading.Lock()
         self.context = zmq.Context()
         self.running = True
         self.heartbeat_interval = 2 # seconds
@@ -79,12 +86,14 @@ class P2PNode:
         time.sleep(1)
         self.broadcast("Discovery HELLO", msg_type='HELLO')
         print(f"[*] P2PNode '{self.node_id}' started on port {self.port}")
-        if self.uds_path:
+        if self.uds_path and hasattr(socket, 'AF_UNIX'):
             print(f"[*] UDS Listener active at {self.uds_path}")
 
     def uds_listen_loop(self):
         """Listens for local data on a Unix Domain Socket to broadcast to peers."""
-        if not self.uds_path:
+        if not self.uds_path or not hasattr(socket, 'AF_UNIX'):
+            if self.uds_path and not hasattr(socket, 'AF_UNIX'):
+                print(f"[*] UDS not supported on this platform. UDS listener disabled for '{self.node_id}'.")
             return
 
         import os
@@ -215,6 +224,9 @@ class P2PNode:
                     msg_type = data.get('type')
                     if msg_type == 'DATA':
                         print(f"[{self.node_id}] RECV from {sender_id}: {data['content']}")
+                        self._log_received_data(sender_id, data)
+                        if self.on_message:
+                            self.on_message(sender_id, data['content'])
                     
                     elif msg_type == 'TIME_REQ':
                         # Respond with our current synced time
@@ -287,6 +299,63 @@ class P2PNode:
                 if peer_id in self.senders:
                     self.senders[peer_id].close()
                     del self.senders[peer_id]
+
+    def _log_received_data(self, sender_id, data):
+        """Helper to log received data to JSON state file and chronological log file."""
+        import os
+        if not self.state_file and not self.data_log_file:
+            return
+
+        with self.data_lock:
+            # 1. Update latest state file (dictionary)
+            if self.state_file:
+                state = {}
+                if os.path.exists(self.state_file):
+                    try:
+                        with open(self.state_file, 'r') as f:
+                            state = json.load(f)
+                    except Exception:
+                        pass
+                
+                state[sender_id] = {
+                    'content': data.get('content'),
+                    'timestamp': data.get('timestamp'),
+                    'ip': data.get('ip'),
+                    'port': data.get('port')
+                }
+                
+                try:
+                    with open(self.state_file, 'w') as f:
+                        json.dump(state, f, indent=4)
+                except Exception as e:
+                    print(f"[!] Error writing state file {self.state_file}: {e}")
+
+            # 2. Update chronological log file (array)
+            if self.data_log_file:
+                log_data = []
+                if os.path.exists(self.data_log_file):
+                    try:
+                        with open(self.data_log_file, 'r') as f:
+                            log_data = json.load(f)
+                    except Exception:
+                        pass
+                
+                if not isinstance(log_data, list):
+                    log_data = []
+
+                log_data.append({
+                    'sender': sender_id,
+                    'content': data.get('content'),
+                    'timestamp': data.get('timestamp'),
+                    'ip': data.get('ip'),
+                    'port': data.get('port')
+                })
+
+                try:
+                    with open(self.data_log_file, 'w') as f:
+                        json.dump(log_data, f, indent=4)
+                except Exception as e:
+                    print(f"[!] Error writing data log file {self.data_log_file}: {e}")
 
     def send_msg(self, peer_id, content, msg_type='DATA'):
         """Asynchronous send to a specific peer."""

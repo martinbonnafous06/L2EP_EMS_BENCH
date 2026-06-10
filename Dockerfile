@@ -6,6 +6,7 @@ RUN apt-get update && apt-get install -y \
     nmap \
     iproute2 \
     libzmq5 \
+    can-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Définir le répertoire de travail
