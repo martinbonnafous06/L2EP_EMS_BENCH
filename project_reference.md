@@ -26,20 +26,20 @@ The testbench is designed as a hybrid HIL loop consisting of two primary layers:
 ```mermaid
 graph TD
     subgraph "Simulation Layer (Power Balance)"
-        dSpace[dSpace Simulator / MATLAB Simulink]
+        dSpace["dSpace Simulator / MATLAB Simulink"]
     end
 
     subgraph "Control Layer (P2P Network & Agents)"
-        Pi_D[Raspberry Pi D<br/>Node: Pi5_dSpace / Orchestrator<br/>(No Battery)]
-        Pi_A[Raspberry Pi A<br/>Node: Pi5_Alpha]
-        Pi_B[Raspberry Pi B<br/>Node: Pi5_Beta]
-        Pi_C[Raspberry Pi C<br/>Node: Pi5_Gamma]
+        Pi_D["Raspberry Pi D (Node: Pi5_dSpace / Orchestrator, No Battery)"]
+        Pi_A["Raspberry Pi A (Node: Pi5_Alpha)"]
+        Pi_B["Raspberry Pi B (Node: Pi5_Beta)"]
+        Pi_C["Raspberry Pi C (Node: Pi5_Gamma)"]
     end
 
     subgraph "Physical Hardware (Batteries)"
-        Bat_A[(Battery A<br/>Pylontech US5000)]
-        Bat_B[(Battery B<br/>Pylontech US5000)]
-        Bat_C[(Battery C<br/>Pylontech US5000)]
+        Bat_A[("Battery A (Pylontech US5000)")]
+        Bat_B[("Battery B (Pylontech US5000)")]
+        Bat_C[("Battery C (Pylontech US5000)")]
     end
 
     %% CAN connections
