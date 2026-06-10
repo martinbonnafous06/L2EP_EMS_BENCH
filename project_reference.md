@@ -99,6 +99,7 @@ The implementation is structured under the [DEV/](file:///C:/Users/marti/Desktop
 | [`received_data_log.json`](file:///C:/Users/marti/Desktop/STAGE/DEV/received_data_log.json) | **Output File:** Historical chronological log storing all received messages in a single JSON list. | JSON |
 | [`data-sent.json`](file:///C:/Users/marti/Desktop/STAGE/DEV/data-sent.json) | **Input File:** Local JSON file containing battery parameters (`power`, `soc`, `voltage`) to be broadcast. | JSON |
 | [`data-recieved.json`](file:///C:/Users/marti/Desktop/STAGE/DEV/data-recieved.json) | **Output File:** Real-time state registry dictionary logging the merged states received from all peers (used by `main_app.py`). | JSON |
+| [`data-recieved-history.json`](file:///C:/Users/marti/Desktop/STAGE/DEV/data-recieved-history.json) | **Output File:** Chronological history log storing all received messages in a single flat JSON list (enabled via `SAVE_HISTORY=true` or automatically on `Pi5_dSpace`). | JSON |
 | [`Dockerfile`](file:///C:/Users/marti/Desktop/STAGE/DEV/Dockerfile) | Conteneur definition for Raspberry Pi environment. | Dockerfile |
 | [`docker-compose.yml`](file:///C:/Users/marti/Desktop/STAGE/DEV/docker-compose.yml) | Orchestration configuration for local deployment. | YAML |
 

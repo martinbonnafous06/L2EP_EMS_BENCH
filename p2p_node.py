@@ -399,13 +399,22 @@ class P2PNode:
                 if not isinstance(log_data, list):
                     log_data = []
 
-                log_data.append({
+                # Build the flat entry
+                entry = {
                     'sender': sender_id,
-                    'content': data.get('content'),
                     'timestamp': data.get('timestamp'),
                     'ip': data.get('ip'),
                     'port': data.get('port')
-                })
+                }
+                
+                # Merge content keys directly at root level if content is a dictionary
+                content = data.get('content')
+                if isinstance(content, dict):
+                    entry.update(content)
+                else:
+                    entry['content'] = content
+
+                log_data.append(entry)
 
                 try:
                     with open(self.data_log_file, 'w') as f:

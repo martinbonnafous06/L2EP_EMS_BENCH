@@ -11,6 +11,15 @@ def main():
     node_id = os.environ.get("NODE_ID", hostname)
     port = int(os.environ.get("P2P_PORT", 5555))
     
+    # Check if we should log history (automatic for dSpace orchestrator, or if requested via env)
+    save_history = os.environ.get("SAVE_HISTORY", "false").lower() in ("true", "1", "yes")
+    if node_id == "Pi5_dSpace":
+        save_history = True
+    
+    data_log_file = "data-recieved-history.json" if save_history else None
+    if save_history:
+        print(f"[*] History logging enabled. Saving chronological log to {data_log_file}")
+    
     # 2. Load discovered peers
     peers_file = "peers.json"
     known_peers = []
@@ -23,7 +32,7 @@ def main():
             print(f"[!] Error loading peers.json: {e}")
 
     # 3. Initialize and Start Node
-    node = P2PNode(node_id, port, known_peers, peers_file=peers_file, state_file="data-recieved.json")
+    node = P2PNode(node_id, port, known_peers, peers_file=peers_file, state_file="data-recieved.json", data_log_file=data_log_file)
     node.start()
 
     print(f"\n--- {node_id} RUNNING ---")
