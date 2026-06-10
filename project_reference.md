@@ -25,31 +25,33 @@ The testbench is designed as a hybrid HIL loop consisting of two primary layers:
 
 ```mermaid
 graph TD
-    subgraph "Layer 1: Simulation (Power Balance)"
+    subgraph "Simulation Layer (Power Balance)"
         dSpace[dSpace Simulator / MATLAB Simulink]
     end
 
-    subgraph "Layer 2: Control (P2P Network & Agents)"
+    subgraph "Control Layer (P2P Network & Agents)"
+        Pi_D[Raspberry Pi D<br/>Node: Pi5_dSpace / Orchestrator<br/>(No Battery)]
         Pi_A[Raspberry Pi A<br/>Node: Pi5_Alpha]
         Pi_B[Raspberry Pi B<br/>Node: Pi5_Beta]
         Pi_C[Raspberry Pi C<br/>Node: Pi5_Gamma]
     end
 
-    subgraph "Physical Hardware"
+    subgraph "Physical Hardware (Batteries)"
         Bat_A[(Battery A<br/>Pylontech US5000)]
         Bat_B[(Battery B<br/>Pylontech US5000)]
         Bat_C[(Battery C<br/>Pylontech US5000)]
     end
 
     %% CAN connections
-    dSpace <-->|CAN Bus| Pi_A
-    dSpace <-->|CAN Bus| Pi_B
-    dSpace <-->|CAN Bus| Pi_C
+    dSpace <-->|CAN Bus| Pi_D
     Pi_A <-->|CAN Bus| Bat_A
     Pi_B <-->|CAN Bus| Bat_B
     Pi_C <-->|CAN Bus| Bat_C
 
     %% ZMQ Ethernet connections
+    Pi_A <-->|ZMQ ROUTER/DEALER| Pi_D
+    Pi_B <-->|ZMQ ROUTER/DEALER| Pi_D
+    Pi_C <-->|ZMQ ROUTER/DEALER| Pi_D
     Pi_A <-->|ZMQ ROUTER/DEALER| Pi_B
     Pi_B <-->|ZMQ ROUTER/DEALER| Pi_C
     Pi_C <-->|ZMQ ROUTER/DEALER| Pi_A
@@ -57,10 +59,12 @@ graph TD
 
 ### 50 Hz Control Loop Workflow
 1.  **Grid State Simulation:** The **dSpace** simulator runs a real-time Simulink model calculating grid frequency and power balance (RES production vs. consumption).
-2.  **CAN Broadcast:** dSpace transmits grid parameters via the **CAN Bus**.
-3.  **Local Decision Making:** Each **Raspberry Pi** reads CAN frames, communicates status (SoC, power constraints) with neighboring Pi nodes via the **ZeroMQ P2P network**, and calculates battery setpoints using localized machine learning models.
-4.  **Hardware Interaction:** Raspberry Pis command their respective **Pylontech US5000** batteries over CAN.
-5.  **Feedback Loop:** Raspberry Pis measure active battery output and report values back to **dSpace** over CAN, allowing the simulation to restore grid frequency towards **50 Hz**.
+2.  **CAN Broadcast (dSpace to Pi D):** dSpace transmits grid parameters (such as frequency deviations) via the **CAN Bus** to the dedicated **Raspberry Pi D**.
+3.  **Local Decision Making & P2P Exchange:** 
+    *   Raspberry Pi D receives the grid status and broadcasts/exchanges these parameters with the battery agents (**Raspberry Pi A, B, C**) over the **ZeroMQ P2P network**.
+    *   Each battery agent checks its own local battery status (Voltage, SoC) via CAN and calculates its power contribution setpoint.
+4.  **Hardware Interaction:** Battery agents (**Raspberry Pi A, B, C**) command their respective **Pylontech US5000** batteries over CAN.
+5.  **Feedback Loop:** Battery agents measure the actual power exchanged by the batteries and report it back via ZMQ to **Raspberry Pi D**, which forwards the total power feedback to **dSpace** over CAN, allowing the simulation to restore grid frequency towards **50 Hz**.
 
 ---
 
