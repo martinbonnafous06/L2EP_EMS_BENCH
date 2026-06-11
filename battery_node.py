@@ -82,7 +82,7 @@ def main():
             print(f"[*] SENT over P2P: {simulated_can_frame['data']}")
             
             counter += 1
-            time.sleep(2) # Send data every 2 seconds
+            time.sleep(10) # Send data every 10 seconds
 
     except KeyboardInterrupt:
         print("\n[*] Stopping battery node...")
