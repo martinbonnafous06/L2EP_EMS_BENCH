@@ -35,7 +35,7 @@ allow 192.168.1.0/24
 local stratum 10
 
 # High precision logging
-logtracking
+log tracking
 logdir /var/log/chrony
 EOF
 
@@ -51,7 +51,7 @@ elif [ "$ROLE" == "client" ]; then
 server $SERVER_IP iburst
 
 # Log adjustments
-logtracking
+log tracking
 logdir /var/log/chrony
 EOF
 else
