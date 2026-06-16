@@ -29,19 +29,35 @@ def send_to_node(message, uds_path="/tmp/p2p_node.sock"):
         return False
 
 class CandumpReceiver(threading.Thread):
-    def __init__(self, interface, forward_uds=False, uds_path="/tmp/p2p_node.sock", output_file=None):
+    def __init__(self, interface, forward_uds=False, uds_path="/tmp/p2p_node.sock", output_file=None, send_interval=10.0):
         super().__init__()
         self.interface = interface
         self.forward_uds = forward_uds
         self.uds_path = uds_path
         self.output_file = output_file
+        self.send_interval = float(send_interval)
         self.running = False
         self.process = None
         self.daemon = True
+        
+        # Buffer for merging CAN frames
+        self.buffer = {}
+        self.buffer_lock = threading.Lock()
+        self.buffer_thread = None
 
     def run(self):
         self.running = True
+        
+        # Start buffer sender thread if interval is greater than 0
+        if self.send_interval > 0:
+            self.buffer_thread = threading.Thread(target=self.send_buffer_loop, daemon=True)
+            self.buffer_thread.start()
+            
         print(f"[*] Starting candump receiver thread on interface '{self.interface}'...")
+        if self.send_interval > 0:
+            print(f"[*] Merged CAN data will be sent every {self.send_interval} seconds.")
+        else:
+            print("[*] CAN frames will be sent immediately.")
         
         try:
             # -L outputs log format: (1612345678.123456) can0 123#1122334455667788
@@ -109,8 +125,13 @@ class CandumpReceiver(threading.Thread):
                                 except Exception as e:
                                     print(f"[!] Error writing text log: {e}", file=sys.stderr)
 
-                    if self.forward_uds:
-                        send_to_node(frame, self.uds_path)
+                    # Store in buffer if send_interval is set, else send immediately
+                    if self.send_interval > 0:
+                        with self.buffer_lock:
+                            self.buffer[can_id] = frame
+                    else:
+                        if self.forward_uds:
+                            send_to_node(frame, self.uds_path)
                 else:
                     print(f"[?] Unrecognized format: {line}")
         except Exception as e:
@@ -118,6 +139,28 @@ class CandumpReceiver(threading.Thread):
                 print(f"[!] Error in candump receiver loop: {e}", file=sys.stderr)
         finally:
             self.stop()
+
+    def send_buffer_loop(self):
+        """Thread loop that periodically transmits buffered merged CAN data."""
+        import time
+        while self.running:
+            # Sleep in small steps to react quickly to shutdown
+            for _ in range(int(self.send_interval * 10)):
+                if not self.running:
+                    return
+                time.sleep(0.1)
+                
+            # Grab and clear the buffer
+            with self.buffer_lock:
+                if not self.buffer:
+                    continue
+                merged_data = dict(self.buffer)
+                self.buffer.clear()
+            
+            # Send the merged data to the node via UDS
+            if self.forward_uds:
+                print(f"[*] Sending merged CAN data ({len(merged_data)} frames) via UDS...")
+                send_to_node(merged_data, self.uds_path)
 
     def stop(self):
         self.running = False
@@ -132,11 +175,11 @@ class CandumpReceiver(threading.Thread):
                     pass
             self.process = None
 
-def receive_can_frames(interface, forward_uds=False, uds_path="/tmp/p2p_node.sock", output_file=None):
+def receive_can_frames(interface, forward_uds=False, uds_path="/tmp/p2p_node.sock", output_file=None, send_interval=10.0):
     """
     Runs candump receiver and blocks the main thread (blocking wrapper for CLI compatibility).
     """
-    receiver = CandumpReceiver(interface, forward_uds=forward_uds, uds_path=uds_path, output_file=output_file)
+    receiver = CandumpReceiver(interface, forward_uds=forward_uds, uds_path=uds_path, output_file=output_file, send_interval=send_interval)
     receiver.daemon = False  # Run blocking
     
     try:
@@ -153,9 +196,10 @@ if __name__ == "__main__":
     parser.add_argument("-f", "--forward", action="store_true", help="Forward frames to P2P node via UDS")
     parser.add_argument("-o", "--output", help="File to write received CAN frames to (appends if exists)")
     parser.add_argument("--uds", default="/tmp/p2p_node.sock", help="Path to the UDS socket (default: /tmp/p2p_node.sock)")
+    parser.add_argument("-i", "--interval", type=float, default=10.0, help="Interval in seconds to send merged CAN data (0 to send immediately)")
     
     args = parser.parse_args()
     
     uds_path = os.environ.get("UDS_PATH", args.uds)
     
-    receive_can_frames(args.interface, forward_uds=args.forward, uds_path=uds_path, output_file=args.output)
+    receive_can_frames(args.interface, forward_uds=args.forward, uds_path=uds_path, output_file=args.output, send_interval=args.interval)
