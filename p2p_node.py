@@ -553,3 +553,39 @@ def start_p2p_node(node_id=None, port=5555, peers_file="peers.json", uds_path="/
     node = P2PNode(node_id, port, known_peers, peers_file=peers_file, uds_path=uds_path)
     node.start()
     return node
+
+def send_to_node(message, target=None, uds_path="/tmp/p2p_node.sock"):
+    """Sends data to the local P2P node via Unix Domain Socket."""
+    import os
+    
+    if not hasattr(socket, 'AF_UNIX'):
+        print("[!] Error: Unix Domain Sockets (UDS) are not supported on this platform.")
+        return
+
+    if not os.path.exists(uds_path):
+        print(f"[!] Error: UDS socket not found at {uds_path}")
+        print("    Ensure the P2P node is running (run_node.py).")
+        return
+
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+            client.connect(uds_path)
+            
+            # Prepare payload for the P2P node
+            # We use a specific structure to tell the node whether to target or broadcast
+            payload_dict = {
+                "target": target, # "all" or specific node_id
+                "content": message
+            }
+            
+            client.sendall(json.dumps(payload_dict).encode())
+            
+            if target and target != "all":
+                print(f"[+] Message sent to {target}: {message}")
+            else:
+                print(f"[+] Message broadcasted to all: {message}")
+            
+    except ConnectionRefusedError:
+        print(f"[!] Error: Connection refused. Is the node listening?")
+    except Exception as e:
+        print(f"[!] Error sending message: {e}")
