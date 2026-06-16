@@ -17,9 +17,9 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copier le code source
-COPY p2p_node.py .
-COPY network_discovery.py .
-COPY main_app.py .
+COPY core/ ./core/
+COPY network/ ./network/
+COPY apps/ ./apps/
 
 # Commande par défaut (peut être surchargée dans docker-compose)
-CMD ["python", "main_app.py"]
+CMD ["python", "apps/main_app.py"]

@@ -86,15 +86,15 @@ The implementation is structured under the [DEV/](file:///C:/Users/marti/Desktop
 
 | File | Description | Language/Type |
 | :--- | :--- | :--- |
-| [`p2p_node.py`](file:///C:/Users/marti/Desktop/STAGE/DEV/p2p_node.py) | **Core Library:** Implements the `P2PNode` class, ZMQ socket patterns, thread loops, heartbeat logic, UDS listener, and time synchronization. Updated to support automatic JSON logging and Windows UDS safeguards. | Python |
-| [`main_app.py`](file:///C:/Users/marti/Desktop/STAGE/DEV/main_app.py) | Main application entry point. Loads and broadcasts `data-sent.json` every 10 seconds, merging received payloads into `data-recieved.json`. | Python |
-| [`battery_node.py`](file:///C:/Users/marti/Desktop/STAGE/DEV/battery_node.py) | Simulates battery telemetry (Voltage/SoC), broadcasts mock CAN frames, and logs received frames to both `battery-can.log` and the structured JSON output files. | Python |
-| [`network_discovery.py`](file:///C:/Users/marti/Desktop/STAGE/DEV/network_discovery.py) | Scans the local subnet using `nmap` for ports `5555-5565` and updates `peers.json`. | Python |
-| [`candump_receiver.py`](file:///C:/Users/marti/Desktop/STAGE/DEV/candump_receiver.py) | Captures physical CAN bus logs (`candump -L`), parses frames using Regex, and forwards them to the P2P node via Unix Domain Socket. | Python |
-| [`orchestrate_time.py`](file:///C:/Users/marti/Desktop/STAGE/DEV/orchestrate_time.py) | Analyzes `peers.json` and outputs deployment instructions for Chrony time server/client setup. | Python |
-| [`setup_time.sh`](file:///C:/Users/marti/Desktop/STAGE/DEV/setup_time.sh) | Automates the installation, configuration, and activation of Chrony on Raspberry Pi OS. | Bash Script |
-| [`send_data.py`](file:///C:/Users/marti/Desktop/STAGE/DEV/send_data.py) | CLI utility to send raw or targeted messages to a running local P2PNode via UDS. | Python |
-| [`run_node.py`](file:///C:/Users/marti/Desktop/STAGE/DEV/run_node.py) | Helper script to start a P2P node in a command line window and monitor connection events. | Python |
+| [`core/p2p_node.py`](file:///C:/Users/marti/Desktop/STAGE/DEV/core/p2p_node.py) | **Core Library:** Implements the `P2PNode` class, ZMQ socket patterns, thread loops, heartbeat logic, UDS listener, and time synchronization. Updated to support automatic JSON logging and Windows UDS safeguards. | Python |
+| [`apps/main_app.py`](file:///C:/Users/marti/Desktop/STAGE/DEV/apps/main_app.py) | Main application entry point. Loads and broadcasts `data-sent.json` every 10 seconds, merging received payloads into `data-recieved.json`. | Python |
+| [`simulation/battery_node.py`](file:///C:/Users/marti/Desktop/STAGE/DEV/simulation/battery_node.py) | Simulates battery telemetry (Voltage/SoC), broadcasts mock CAN frames, and logs received frames to both `battery-can.log` and the structured JSON output files. | Python |
+| [`network/network_discovery.py`](file:///C:/Users/marti/Desktop/STAGE/DEV/network/network_discovery.py) | Scans the local subnet using `nmap` for ports `5555-5565` and updates `peers.json`. | Python |
+| [`can_bus/candump_receiver.py`](file:///C:/Users/marti/Desktop/STAGE/DEV/can_bus/candump_receiver.py) | Captures physical CAN bus logs (`candump -L`), parses frames using Regex, and forwards them to the P2P node via Unix Domain Socket. | Python |
+| [`time_sync/orchestrate_time.py`](file:///C:/Users/marti/Desktop/STAGE/DEV/time_sync/orchestrate_time.py) | Analyzes `peers.json` and outputs deployment instructions for Chrony time server/client setup. | Python |
+| [`time_sync/setup_time.sh`](file:///C:/Users/marti/Desktop/STAGE/DEV/time_sync/setup_time.sh) | Automates the installation, configuration, and activation of Chrony on Raspberry Pi OS. | Bash Script |
+| [`apps/send_data.py`](file:///C:/Users/marti/Desktop/STAGE/DEV/apps/send_data.py) | CLI utility to send raw or targeted messages to a running local P2PNode via UDS. | Python |
+| [`apps/run_node.py`](file:///C:/Users/marti/Desktop/STAGE/DEV/apps/run_node.py) | Helper script to start a P2P node in a command line window and monitor connection events. | Python |
 | [`latest_states.json`](file:///C:/Users/marti/Desktop/STAGE/DEV/latest_states.json) | **Output File:** Real-time state registry dictionary mapping each active `node_id` to its latest telemetry payload. | JSON |
 | [`received_data_log.json`](file:///C:/Users/marti/Desktop/STAGE/DEV/received_data_log.json) | **Output File:** Historical chronological log storing all received messages in a single JSON list. | JSON |
 | [`data-sent.json`](file:///C:/Users/marti/Desktop/STAGE/DEV/data-sent.json) | **Input File:** Local JSON file containing battery parameters (`power`, `soc`, `voltage`) to be broadcast. | JSON |

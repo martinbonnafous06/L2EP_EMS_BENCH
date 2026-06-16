@@ -1,9 +1,10 @@
 import time
 import os
-try:
-    from .p2p_node import start_p2p_node
-except (ImportError, ValueError):
-    from p2p_node import start_p2p_node
+import sys
+
+# Add parent directory to path to allow importing from core
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from core.p2p_node import start_p2p_node
 
 def main():
     # Configuration via environment or defaults

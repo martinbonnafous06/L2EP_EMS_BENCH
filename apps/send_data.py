@@ -1,6 +1,10 @@
 import os
 import argparse
-from p2p_node import send_to_node
+import sys
+
+# Add parent directory to path to allow importing from core
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from core.p2p_node import send_to_node
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Send messages to the P2P network.")

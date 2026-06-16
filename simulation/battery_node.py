@@ -2,11 +2,12 @@ import time
 import json
 import os
 import argparse
+import sys
 from datetime import datetime
-try:
-    from .p2p_node import P2PNode
-except (ImportError, ValueError):
-    from p2p_node import P2PNode
+
+# Add parent directory to path to allow importing from core
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from core.p2p_node import P2PNode
 
 LOG_FILE = "battery-can.log"
 
