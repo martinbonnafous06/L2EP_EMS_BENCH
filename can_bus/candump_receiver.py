@@ -41,7 +41,7 @@ class CandumpReceiver(threading.Thread):
         self.daemon = True
         
         # Buffer for merging CAN frames
-        self.buffer = {}
+        self.buffer = []
         self.buffer_lock = threading.Lock()
         self.buffer_thread = None
 
@@ -128,7 +128,7 @@ class CandumpReceiver(threading.Thread):
                     # Store in buffer if send_interval is set, else send immediately
                     if self.send_interval > 0:
                         with self.buffer_lock:
-                            self.buffer[can_id] = frame
+                            self.buffer.append(frame)
                     else:
                         if self.forward_uds:
                             send_to_node(frame, self.uds_path)
@@ -154,7 +154,7 @@ class CandumpReceiver(threading.Thread):
             with self.buffer_lock:
                 if not self.buffer:
                     continue
-                merged_data = dict(self.buffer)
+                merged_data = list(self.buffer)
                 self.buffer.clear()
             
             # Send the merged data to the node via UDS
