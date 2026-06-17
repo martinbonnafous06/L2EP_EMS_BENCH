@@ -7,6 +7,7 @@ import argparse
 # Add parent directory to path to allow importing from core/can_bus
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core.p2p_node import P2PNode
+from core.influx_logger import InfluxDBLogger
 
 def main():
     # 1. Configuration / Arguments
@@ -48,13 +49,19 @@ def main():
         except Exception as e:
             print(f"[!] Error loading peers.json: {e}")
 
-    # 3. Initialize and Start P2P Node (starts router receiver, heartbeat, time sync, and UDS loops)
+    # 3. Initialize InfluxDB logger and P2P Node (starts router receiver, heartbeat, time sync, and UDS loops)
+    influx_logger = InfluxDBLogger()
+    
+    def on_message_received(sender_id, content):
+        influx_logger.log_message(sender_id, content)
+        
     node = P2PNode(
         node_id=node_id, 
         port=port, 
         known_peers_list=known_peers, 
         peers_file=peers_file, 
         uds_path=uds_path,
+        on_message=on_message_received,
         state_file="data-recieved.json", 
         data_log_file=data_log_file
     )
@@ -92,6 +99,8 @@ def main():
                         data_to_send = json.load(f)
                     node.broadcast(data_to_send)
                     print(f"[*] Broadcasted data from '{args.file}': {data_to_send}")
+                    # Log our own telemetry to InfluxDB
+                    influx_logger.log_message(node_id, data_to_send)
                 except Exception as e:
                     print(f"[!] Error reading/broadcasting '{args.file}': {e}")
             else:
@@ -112,6 +121,7 @@ def main():
         if can_receiver:
             can_receiver.stop()
         node.shutdown()
+        influx_logger.shutdown()
 
 if __name__ == "__main__":
     main()
