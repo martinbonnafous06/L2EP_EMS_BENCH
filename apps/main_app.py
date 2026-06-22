@@ -56,8 +56,8 @@ def main():
         influx_logger.log_message(sender_id, content)
         
     node = P2PNode(
-        node_id=node_id, 
-        port=port, 
+        node_id=node_id,
+        port=port,
         known_peers_list=known_peers, 
         peers_file=peers_file, 
         uds_path=uds_path,

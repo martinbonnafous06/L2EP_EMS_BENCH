@@ -554,38 +554,125 @@ def start_p2p_node(node_id=None, port=5555, peers_file="peers.json", uds_path="/
     node.start()
     return node
 
-def send_to_node(message, target=None, uds_path="/tmp/p2p_node.sock"):
-    """Sends data to the local P2P node via Unix Domain Socket."""
-    import os
+def send_p2p_data(message, target=None, peers_file="peers.json", uds_path="/tmp/p2p_node.sock", sender_id="external_sender"):
+    """
+    Sends data to the P2P network.
+    It first tries to communicate with a local running P2P node via Unix Domain Socket (UDS).
+    If UDS is not supported on this platform, or the socket file does not exist,
+    it falls back to sending the message directly to all known peers (or a target peer)
+    using transient ZeroMQ DEALER sockets based on the peer list from `peers_file`.
     
-    if not hasattr(socket, 'AF_UNIX'):
-        print("[!] Error: Unix Domain Sockets (UDS) are not supported on this platform.")
-        return
-
-    if not os.path.exists(uds_path):
-        print(f"[!] Error: UDS socket not found at {uds_path}")
-        print("    Ensure the P2P node is running (run_node.py).")
-        return
-
+    This allows any external script (running locally or remotely, on Windows or Linux)
+    to send messages to the P2P network seamlessly.
+    
+    :param message: The message content to broadcast or send (string, dict, etc.).
+    :param target: Optional target Node ID to send to. If None, broadcasts to all.
+    :param peers_file: Path to the peers JSON file (used for direct send fallback).
+    :param uds_path: Path to the Unix Domain Socket file of the local node.
+    :param sender_id: Identifier of this sender (used for direct send fallback).
+    :return: True if sent successfully, False otherwise.
+    """
+    import os
+    import socket
+    import json
+    
+    # Try using Unix Domain Socket if supported and path exists
+    if hasattr(socket, 'AF_UNIX') and uds_path and os.path.exists(uds_path):
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+                client.connect(uds_path)
+                payload_dict = {
+                    "target": target,
+                    "content": message
+                }
+                client.sendall(json.dumps(payload_dict).encode())
+                if target and target != "all":
+                    print(f"[+] Message sent to {target} via local node UDS: {message}")
+                else:
+                    print(f"[+] Message broadcasted via local node UDS: {message}")
+                return True
+        except Exception as e:
+            print(f"[*] Local UDS connection failed ({e}). Falling back to direct P2P connection...")
+    
+    # Fallback to sending directly to peers over TCP via ZMQ
+    import zmq
+    import time
+    
+    # Locate peers.json relative to the module file if not found in cwd
+    if peers_file == "peers.json" and not os.path.exists(peers_file):
+        core_dir = os.path.dirname(os.path.abspath(__file__))
+        parent_peers = os.path.join(core_dir, "..", "peers.json")
+        if os.path.exists(parent_peers):
+            peers_file = parent_peers
+            
+    if not os.path.exists(peers_file):
+        print(f"[!] Error: Peers file not found at {peers_file}. Cannot send message.")
+        return False
+        
+    known_peers = []
     try:
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-            client.connect(uds_path)
-            
-            # Prepare payload for the P2P node
-            # We use a specific structure to tell the node whether to target or broadcast
-            payload_dict = {
-                "target": target, # "all" or specific node_id
-                "content": message
-            }
-            
-            client.sendall(json.dumps(payload_dict).encode())
-            
-            if target and target != "all":
-                print(f"[+] Message sent to {target}: {message}")
-            else:
-                print(f"[+] Message broadcasted to all: {message}")
-            
-    except ConnectionRefusedError:
-        print(f"[!] Error: Connection refused. Is the node listening?")
+        with open(peers_file, "r") as f:
+            known_peers = json.load(f)
     except Exception as e:
-        print(f"[!] Error sending message: {e}")
+        print(f"[!] Error loading {peers_file}: {e}")
+        return False
+        
+    if not known_peers:
+        print(f"[!] No peers found in {peers_file}. Cannot send message.")
+        return False
+        
+    peers_to_send = []
+    for p_str in known_peers:
+        try:
+            p_id, p_ip, p_port = p_str.split(':')
+            if target and target != "all" and p_id != target:
+                continue
+            peers_to_send.append((p_id, p_ip, int(p_port)))
+        except ValueError:
+            continue
+            
+    if target and target != "all" and not peers_to_send:
+        print(f"[!] Target peer '{target}' not found in {peers_file}.")
+        return False
+        
+    context = zmq.Context()
+    success = False
+    
+    # Get local IP
+    local_ip = '127.0.0.1'
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(('8.8.8.8', 80))
+        local_ip = s.getsockname()[0]
+        s.close()
+    except Exception:
+        pass
+        
+    payload = {
+        'type': 'DATA',
+        'sender': sender_id,
+        'timestamp': time.time(),
+        'content': message,
+        'ip': local_ip,
+        'port': 0  # Indicate transient sender (not listening)
+    }
+    
+    for p_id, p_ip, p_port in peers_to_send:
+        try:
+            sender = context.socket(zmq.DEALER)
+            sender.setsockopt_string(zmq.IDENTITY, sender_id)
+            sender.setsockopt(zmq.LINGER, 0)
+            sender.connect(f"tcp://{p_ip}:{p_port}")
+            sender.send_string(json.dumps(payload))
+            print(f"[+] Direct P2P: Message sent directly to peer {p_id} @ {p_ip}:{p_port}")
+            sender.close()
+            success = True
+        except Exception as e:
+            print(f"[!] Direct P2P: Failed to send to peer {p_id} @ {p_ip}:{p_port}: {e}")
+            
+    context.term()
+    return success
+
+def send_to_node(message, target=None, uds_path="/tmp/p2p_node.sock"):
+    """Sends data to the local P2P node via Unix Domain Socket, with direct fallback."""
+    return send_p2p_data(message, target=target, uds_path=uds_path)
